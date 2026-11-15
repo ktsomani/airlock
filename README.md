@@ -1,6 +1,6 @@
 # Airlock
 
-[Watch the 39-second working demo](https://github.com/ktsomani/airlock/raw/refs/heads/main/launch/airlock-working-demo.mp4) to see a staged change reviewed in Pressure and admitted to Airlock’s mock canvas.
+[Watch the 55-second Paper Desktop walkthrough](https://github.com/ktsomani/airlock/raw/refs/heads/main/launch/airlock-paper-full-workflow.mp4) to see Codex stage a welcome card through Airlock MCP, the designer review it in Pressure and approve admission, and the card render on the live Paper canvas.
 
 Open **Pressure** from a review to compare its staged canvas states, or visit `/pressure/` for the sample. See the [Pressure README](public/pressure/README.md) for the snapshot format and browser tests.
 
