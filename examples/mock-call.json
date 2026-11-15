@@ -1,0 +1,4 @@
+{
+  "targetNodeId": "welcome",
+  "html": "<main id=\"welcome\"><h1 id=\"title\">Make room for good work.</h1><button id=\"cta\" style=\"color: var(--accent)\">Get started</button></main>"
+}

@@ -1,0 +1,64 @@
+{
+  "name": "airlock-mcp",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "A human approval staging chamber for Paper MCP",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "bin": {
+    "airlock": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit && node --check public/app.js",
+    "test": "vitest run",
+    "dev": "tsx src/cli.ts start",
+    "start": "node dist/cli.js start",
+    "demo": "tsx src/cli.ts demo",
+    "prepublishOnly": "pnpm test && pnpm build"
+  },
+  "files": [
+    "dist",
+    "public",
+    "README.md",
+    "LICENSE",
+    "examples",
+    ".env.example"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.3.1",
+    "node-html-parser": "^7.0.1",
+    "shell-quote": "^1.8.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.19.0",
+    "@types/shell-quote": "^1.7.5",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}

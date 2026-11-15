@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.airlock/
+.env
+coverage/
+*.tgz

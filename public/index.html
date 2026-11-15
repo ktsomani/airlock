@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Airlock — Review chamber</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Airlock home"
+        ><span class="logo">a<span>↗</span></span
+        >airlock<span class="version">/ 01</span></a
+      >
+      <div class="workspace">
+        <span class="workspace-icon">P</span>
+        <div>Paper workspace<small id="mode">Connecting…</small></div>
+        <span class="online"></span>
+      </div>
+      <div class="nav-label">WORKSPACE</div>
+      <button class="nav active" id="nav-reviews">
+        <span>▣</span> Review chamber <span class="nav-count" id="review-count">0</span></button
+      ><button class="nav" id="nav-schema">
+        <span>⌘</span> Tool contracts <span class="tiny-dot"></span>
+      </button>
+      <div class="sidebar-note">
+        <div class="orbit">◎</div>
+        <strong>A little space.<br />A lot more control.</strong>
+        <p>Agent changes wait here.<br />You decide what gets in.</p>
+      </div>
+      <div class="sidebar-footer">
+        <span class="online"></span> <span id="connection">Local connection</span
+        ><span class="shortcut">↗</span>
+      </div>
+    </aside>
+    <div class="app">
+      <header class="topbar">
+        <div><span class="muted">Workspace</span><span class="slash">/</span>Review chamber</div>
+        <div class="top-right">
+          <span id="environment" class="pill">MOCK MODE</span><span class="avatar">You</span>
+        </div>
+      </header>
+      <main>
+        <div class="page-heading">
+          <div class="eyebrow"><span class="line"></span> HUMAN IN THE LOOP</div>
+          <div class="title-row">
+            <div>
+              <h1>Good work deserves<br />a second look<span class="green">.</span></h1>
+              <p class="subtitle">A quiet checkpoint between agent intent and your canvas.</p>
+            </div>
+            <button class="button primary" id="new-review"><span>＋</span> Open review</button>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <span>In the chamber</span>
+            <div><strong id="pending-count">0</strong><small>awaiting your review</small></div>
+          </div>
+          <div class="stat">
+            <span>Admitted to canvas</span>
+            <div><strong id="admitted-count">0</strong><small>approved by a human</small></div>
+          </div>
+          <div class="stat">
+            <span>Connection health <span class="online"></span></span>
+            <div>
+              <strong class="health" id="health">Checking</strong
+              ><small id="schema-age">discovering tools</small>
+            </div>
+          </div>
+        </div>
+        <section class="chamber">
+          <div class="section-head">
+            <h2>Review chamber <span id="chamber-count">0</span></h2>
+            <div class="filters">
+              <input
+                id="search"
+                type="search"
+                placeholder="Search reviews…"
+                aria-label="Search reviews"
+              /><select id="status-filter" aria-label="Filter status">
+                <option value="all">All reviews</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="partial">Partial</option>
+                <option value="admitted">Admitted</option>
+              </select>
+            </div>
+          </div>
+          <div class="review-layout">
+            <div class="review-list" id="review-list"></div>
+            <div class="review-content" id="review-content">
+              <div class="empty">
+                <span class="empty-icon">◎</span>
+                <h3>Your canvas has a checkpoint.</h3>
+                <p>
+                  Open a review, stage a tool call, then inspect every change before you admit it.
+                </p>
+                <button class="button" id="empty-open">Open your first review ↗</button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div class="footnote">
+          <span>◎ &nbsp; Staged with intention. Admitted with confidence.</span
+          ><span
+            >Admission is non-atomic
+            <span
+              class="info"
+              title="A failed tool call may have partially applied. Inspect Paper before retrying."
+              >i</span
+            ></span
+          >
+        </div>
+      </main>
+    </div>
+    <dialog id="modal">
+      <div class="modal-head">
+        <h2 id="modal-title"></h2>
+        <button class="icon-button" id="close-modal" aria-label="Close dialog">×</button>
+      </div>
+      <div id="modal-body"></div>
+    </dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
