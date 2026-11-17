@@ -1,9 +1,10 @@
 const $ = (s) => document.querySelector(s);
 let state,
-  selected,
+  selected = new URLSearchParams(location.search).get('review'),
   detail,
   tab = 'all',
   toastTimer;
+let queueMarkup = '';
 const approvals = new Map();
 const esc = (x) =>
   String(x ?? '').replace(
@@ -31,13 +32,28 @@ function toast(message) {
 }
 const run = (fn) => async (event) => {
   const button = event?.currentTarget;
+  const dialog = button?.closest('dialog');
   try {
-    if (button) button.disabled = true;
+    dialog?.querySelector('.dialog-error')?.remove();
+    if (button?.matches('form')) {
+      if (button.getAttribute('aria-busy') === 'true') return;
+      button.setAttribute('aria-busy', 'true');
+      button.querySelector('button[type="submit"],button:not([type])')?.setAttribute('disabled', '');
+    } else if (button) button.disabled = true;
     await fn(event);
   } catch (e) {
-    toast(e.message);
+    if (dialog?.open) {
+      const error = document.createElement('p');
+      error.className = 'dialog-error';
+      error.setAttribute('role', 'alert');
+      error.textContent = e.message;
+      dialog.querySelector('#modal-body').append(error);
+    } else toast(e.message);
   } finally {
-    if (button) button.disabled = false;
+    if (button?.matches('form')) {
+      button.removeAttribute('aria-busy');
+      button.querySelector('button[type="submit"],button:not([type])')?.removeAttribute('disabled');
+    } else if (button) button.disabled = false;
   }
 };
 const badge = (status) => `<span class="status ${esc(status)}">${esc(status)}</span>`;
@@ -47,6 +63,7 @@ async function refresh() {
   state = await api('state');
   $('#mode').textContent = state.mode === 'mock' ? 'Mock canvas · local' : 'Live Paper connection';
   $('#environment').textContent = state.mode.toUpperCase() + ' MODE';
+  $('#environment').classList.toggle('live', state.mode === 'live');
   $('#connection').textContent = state.schemas.degraded ? 'Cached connection' : 'Local connection';
   $('#pending-count').textContent = state.reviews.filter((r) =>
     ['pending', 'approved', 'partial'].includes(r.status),
@@ -62,10 +79,12 @@ async function refresh() {
       : 'Connected';
   $('#schema-age').textContent =
     `${state.schemas.tools.length} tools · ${state.schemas.source === 'catalog' ? 'mock catalog' : 'live discovery'}`;
-  if (!selected && state.reviews.length) selected = state.reviews[0].id;
+  if (!state.reviews.some(review => review.id === selected)) selected = state.reviews[0]?.id;
   renderList();
   if (selected) {
-    const next = await api('reviews/' + selected);
+    const id = selected;
+    const next = await api('reviews/' + id);
+    if (id !== selected) return;
     if (JSON.stringify(next) !== JSON.stringify(detail)) {
       detail = next;
       renderDetail();
@@ -73,6 +92,7 @@ async function refresh() {
   }
 }
 function renderList() {
+  if (!state) return;
   const term = $('#search').value.toLowerCase(),
     status = $('#status-filter').value;
   const list = state.reviews.filter(
@@ -80,24 +100,34 @@ function renderList() {
       (status === 'all' || r.status === status) &&
       `${r.title} ${r.agent}`.toLowerCase().includes(term),
   );
-  $('#review-list').innerHTML = list.length
+  const html = list.length
     ? list
         .map(
           (r) =>
-            `<button class="review-item ${r.id === selected ? 'selected' : ''}" data-review="${esc(r.id)}"><div class="item-top"><span>${esc(r.id.slice(0, 8))}</span>${badge(r.status)}</div><h3>${esc(r.title)}</h3><div class="item-bottom">◈ &nbsp; ${esc(r.agent)} <span>· ${time(r.created_at)}</span></div></button>`,
+            `<button class="review-item ${r.id === selected ? 'selected' : ''}" aria-pressed="${r.id === selected}" data-review="${esc(r.id)}"><div class="item-top"><span>${esc(r.id.slice(0, 8))}</span>${badge(r.status)}</div><h3>${esc(r.title)}</h3><div class="item-bottom">${esc(r.agent)} <span>· ${time(r.created_at)}</span></div></button>`,
         )
         .join('')
-    : '<div class="list-empty">No reviews here yet.<br>New work starts with a snapshot.</div>';
+    : `<div class="list-empty">${state.reviews.length ? 'No reviews match these filters.' : 'No reviews yet.'}</div>`;
+  if (html === queueMarkup) return;
+  queueMarkup = html;
+  const focusId = document.activeElement?.dataset.review;
+  $('#review-list').innerHTML = html;
+  if (focusId) $('#review-list').querySelector(`[data-review="${CSS.escape(focusId)}"]`)?.focus({preventScroll:true});
   document.querySelectorAll('[data-review]').forEach(
     (b) =>
-      (b.onclick = run(async () => {
-        selected = b.dataset.review;
-        tab = 'all';
-        detail = await api('reviews/' + selected);
-        renderList();
-        renderDetail();
-      })),
+      (b.onclick = run(() => selectReview(b.dataset.review))),
   );
+}
+async function selectReview(id) {
+  const next = await api('reviews/' + id);
+  selected = id;
+  tab = 'all';
+  detail = next;
+  const url = new URL(location.href);
+  url.searchParams.set('review', id);
+  history.replaceState(null, '', url);
+  renderList();
+  renderDetail();
 }
 function value(v) {
   if (v === null) return '∅';
@@ -116,6 +146,30 @@ function value(v) {
   }
   return JSON.stringify(v, null, 2);
 }
+function renderGroup(group, index) {
+  let failure = group.error_json;
+  if (failure) {
+    try { failure = JSON.parse(failure).message ?? failure; } catch { /* Older rows may store plain text. */ }
+  }
+  return `<div class="group"><span>${index + 1}.</span><code>${esc(group.tool)}</code>${badge(group.status)}
+    ${failure ? `<p class="contract-warning">${esc(failure)}</p>` : ''}
+    <details><summary>Replay arguments</summary><pre class="value">${esc(JSON.stringify(group.args, null, 2))}</pre></details>
+  </div>`;
+}
+function renderOp(op) {
+  const action = op.before === null ? 'Added' : op.after === null ? 'Removed' : 'Modified';
+  const label = op.varName ?? op.after?.id ?? op.before?.id ?? op.after?.tag ?? op.before?.tag ?? op.key;
+  const path = op.after?.path ?? op.before?.path;
+  return `<article class="op">
+    <div class="op-head">
+      <span class="op-icon" aria-hidden="true">${op.space === 'token' ? '◈' : action === 'Added' ? '+' : action === 'Removed' ? '−' : '↗'}</span>
+      <code>${esc(label)}</code>${path ? `<span class="muted">${esc(path)}</span>` : ''}
+      <span class="op-label">${action} · ${esc(op.status)}</span>
+    </div>
+    <div class="op-values"><div class="value"><small>BEFORE</small>${esc(value(op.before))}</div><div class="value after"><small>AFTER</small>${esc(value(op.after))}</div></div>
+    ${op.appliedWithinGroup ? '<p class="contract-warning">Application within the failed call is unknown.</p>' : ''}
+  </article>`;
+}
 function renderDetail() {
   if (!detail) return;
   const { review: r, ops, conflicts, groups, diffHash } = detail;
@@ -127,29 +181,92 @@ function renderDetail() {
       ['pending', 'approved', 'partial'].includes(r.status) && ops.length && !conflicts.length;
   const approved = approvals.get(r.id);
   if (approved && approved.diffHash !== diffHash) approvals.delete(r.id);
-  $('#review-content').innerHTML =
-    `<div class="detail-head"><div class="detail-meta"><span>REVIEW / ${esc(r.id.slice(0, 8))}</span>${badge(r.status)}</div><h2>${esc(r.title)}</h2><div class="detail-sub">◈ &nbsp; ${esc(r.agent)} &nbsp; · &nbsp; ${groups.length} tool call${groups.length === 1 ? '' : 's'} &nbsp; · &nbsp; ${nodes.length} node / ${tokens.length} token changes</div><div class="detail-actions"><a class="button" href="/pressure/?review=${encodeURIComponent(r.id)}">Open in Pressure ↗</a>${canEdit ? '<button class="button" id="stage">＋ Stage call</button>' : ''}${canApprove ? '<button class="button approve" id="approve">✓ Approve diff</button>' : ''}${approvals.has(r.id) && ['approved', 'partial'].includes(r.status) ? `<button class="button primary" id="admit">${r.status === 'partial' ? 'Resume admission' : 'Admit to canvas'} ↗</button>` : ''}${canEdit || r.status === 'partial' ? `<button class="button danger" id="reject">${r.status === 'partial' ? 'Close partial review' : 'Reject'}</button>` : ''}</div></div>${r.status === 'partial' ? '<div class="banner">Admission stopped. A failed tool call may have partially applied. Inspect Paper before resuming: the entire failed call will be retried.</div>' : ''}${conflicts.length ? `<div class="banner">${conflicts.length} overlapping operation pair${conflicts.length === 1 ? '' : 's'} in pending reviews. Resolve them before approval. ${[...new Set(conflicts.map((c) => c.kind + ' · ' + c.key))].map(esc).join(', ')}</div>` : ''}<div class="tabs"><button class="tab ${tab === 'all' ? 'active' : ''}" data-tab="all">All changes <span>${ops.length}</span></button><button class="tab ${tab === 'nodes' ? 'active' : ''}" data-tab="nodes">Nodes <span>${nodes.length}</span></button><button class="tab ${tab === 'tokens' ? 'active' : ''}" data-tab="tokens">Tokens <span>${tokens.length}</span></button><button class="tab ${tab === 'calls' ? 'active' : ''}" data-tab="calls">Tool calls <span>${groups.length}</span></button></div><div class="ops">${tab === 'calls' ? groups.map((g, i) => `<div class="group">${i + 1}. <code>${esc(g.tool)}</code>${badge(g.status)}<p>${esc(g.id.slice(0, 12))} · contract ${esc(g.contract_hash.slice(0, 12))}</p>${g.error_json ? `<p>${esc(g.error_json)}</p>` : ''}<details><summary>Original arguments</summary><pre class="value">${esc(JSON.stringify(g.args, null, 2))}</pre></details></div>`).join('') : filtered.length ? filtered.map((op) => `<article class="op"><div class="op-head"><span class="op-icon">${op.space === 'token' ? '◈' : op.before === null ? '+' : op.after === null ? '−' : '↗'}</span><code>${esc(op.varName ?? op.after?.id ?? op.before?.id ?? op.key)}</code><span class="op-label">${op.before === null ? 'ADDED' : op.after === null ? 'REMOVED' : 'MODIFIED'} · ${esc(op.status)}</span></div><div class="op-values"><div class="value"><small>BEFORE</small>${esc(value(op.before))}</div><div class="value after"><small>AFTER</small>${esc(value(op.after))}</div></div>${op.appliedWithinGroup ? '<div class="contract-warning">Applied within failed group: unknown</div>' : ''}</article>`).join('') : '<div class="empty"><h3>A little room for possibility.</h3><p>Stage a tool call to see its structural changes here.</p></div>'}</div><div class="review-bottom"><span>BASE ${esc(r.base_hash.slice(0, 10))} &nbsp; / &nbsp; DIFF ${esc(diffHash.slice(0, 10))}</span><span>${conflicts.length ? 'Overlaps need attention' : 'No cross-review conflicts'} · atomic: false</span></div>`;
-  document.querySelectorAll('[data-tab]').forEach(
-    (b) =>
-      (b.onclick = () => {
-        tab = b.dataset.tab;
-        renderDetail();
-      }),
-  );
+  const host = $('#review-content');
+  const active = host.contains(document.activeElement) ? document.activeElement : null;
+  const focusId = active?.id;
+  const focusTab = active?.dataset.tab;
+  const scroll = host.querySelector('.ops')?.scrollTop ?? 0;
+  const blocked = conflicts.length > 0;
+  const retry = r.status === 'partial';
+  const completed = r.status === 'admitted';
+  const closed = r.status === 'rejected';
+  const canAdmit = approvals.has(r.id) && ['approved', 'partial'].includes(r.status) && !blocked;
+  const stageReady = ops.length > 0;
+  const reviewed = ['approved', 'partial', 'admitting', 'admitted'].includes(r.status);
+  const current = !stageReady ? 0 : !reviewed ? 1 : completed ? -1 : 2;
+  const steps = [
+    ['Draft change', stageReady],
+    ['Review diff', reviewed],
+    [retry ? 'Admission stopped' : 'Commit to canvas', completed],
+  ];
+  const lifecycle = closed ? '' : `<ol class="lifecycle" aria-label="Review progress">${steps.map(([label, done], i) => {
+    const isCurrent = current === i;
+    return `<li class="${done ? 'done' : ''} ${isCurrent ? 'current' : ''} ${isCurrent && (retry || blocked) ? 'blocked' : ''}" ${isCurrent ? 'aria-current="step"' : ''}><span aria-hidden="true">${done ? '✓' : i + 1}</span>${label}</li>`;
+  }).join('')}</ol>`;
+  const related = [...new Set(conflicts.map(conflict => conflict.reviewId))];
+  const overlap = blocked ? `<div class="banner"><p><strong>Approval blocked</strong> · ${conflicts.length} overlapping change ${conflicts.length === 1 ? 'pair' : 'pairs'}.</p><ul>${related.map(id => {
+    const other = state.reviews.find(review => review.id === id);
+    return `<li><a href="/?review=${encodeURIComponent(id)}" data-conflict="${esc(id)}">${esc(other?.title ?? id.slice(0, 8))}</a>${other ? ` · ${esc(other.status)}` : ''}</li>`;
+  }).join('')}</ul></div>` : '';
+  const stopped = retry ? '<div class="banner"><strong>Admission stopped.</strong> Check Paper for changes from the failed call before resuming.</div>' : '';
+  const tabs = [['all', 'All changes', ops.length], ['nodes', 'Nodes', nodes.length],
+    ['tokens', 'Tokens', tokens.length], ['calls', 'Tool calls', groups.length]];
+  const content = tab === 'calls'
+    ? groups.map(renderGroup).join('')
+    : filtered.map(renderOp).join('');
+  host.innerHTML = `
+    <div class="detail-head">
+      <div class="detail-meta"><span>${esc(r.id.slice(0, 8))}</span>${badge(r.status)}</div>
+      <h2>${esc(r.title)}</h2>
+      <div class="detail-sub">${esc(r.agent)} · ${groups.length} tool ${groups.length === 1 ? 'call' : 'calls'} · ${nodes.length} node / ${tokens.length} token changes</div>
+      <div class="detail-actions">
+        ${stageReady ? `<a class="button" href="/merge-state/?review=${encodeURIComponent(r.id)}">Open in Merge State ↗</a>` : ''}
+        ${canEdit ? '<button class="button" id="stage">＋ Record draft call</button>' : ''}
+        ${canApprove && !canAdmit ? `<button class="button approve" id="approve">✓ ${reviewed ? 'Resolve again' : 'Resolve diff'}</button>` : ''}
+        ${canAdmit ? `<button class="button primary" id="admit">${retry ? 'Resume Merge' : 'Commit to canvas'} ↗</button>` : ''}
+        ${canEdit || retry ? `<button class="button danger" id="reject">${retry ? 'Close partial review' : 'Reject'}</button>` : ''}
+      </div>
+    </div>
+    ${lifecycle}${stopped}${overlap}
+    <div class="tabs" role="group" aria-label="Change views">
+      ${tabs.map(([key, label, count]) => `<button class="tab ${tab === key ? 'active' : ''}" aria-pressed="${tab === key}" data-tab="${key}">${label} <span>${count}</span></button>`).join('')}
+    </div>
+    <div class="ops">${content || '<div class="empty"><h3>No changes in this view</h3><p>Stage a tool call or select another view.</p></div>'}</div>
+    <div class="review-bottom">
+      <span>BASE ${esc(r.base_hash.slice(0, 10))} / DIFF ${esc(diffHash.slice(0, 10))}</span>
+      <span>${blocked ? 'Conflicts detected' : 'No review conflicts'} · Non-atomic replay</span>
+    </div>`;
+  if (focusId) {
+    const next = document.getElementById(focusId) ??
+      (focusId === 'approve' ? $('#admit') : null);
+    next?.focus({preventScroll:true});
+  }
+  if (focusTab) host.querySelector(`[data-tab="${CSS.escape(focusTab)}"]`)?.focus({preventScroll:true});
+  host.querySelector('.ops').scrollTop = scroll;
+  host.querySelectorAll('[data-conflict]').forEach(link => link.onclick = run(event => {
+    event.preventDefault();
+    return selectReview(link.dataset.conflict);
+  }));
+  host.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => {
+    tab = button.dataset.tab;
+    renderDetail();
+    host.querySelector('.ops').scrollTop = 0;
+  });
   if ($('#stage')) $('#stage').onclick = stageModal;
   if ($('#approve'))
     $('#approve').onclick = run(async () => {
       const approval = await api('approve', { reviewId: r.id, diffHash });
       approvals.set(r.id, approval);
-      toast('Diff approved. Admission is a separate step.');
+      toast('Diff resolved. Commit when ready.');
       await refresh();
+      if (selected === r.id) renderDetail();
     });
   if ($('#admit')) $('#admit').onclick = () => admitModal(r);
   if ($('#reject'))
     $('#reject').onclick = () => {
       modal(
         r.status === 'partial' ? 'Close partial review?' : 'Reject this review?',
-        `<p class="modal-copy">${r.status === 'partial' ? 'Inspect Paper first. Closing ends retries and clears review conflicts. Any changes already applied in Paper remain.' : `Close “${esc(r.title)}” without admitting its staged calls.`}</p><div class="modal-actions"><button class="button danger" id="confirm-reject">${r.status === 'partial' ? 'Close review' : 'Reject review'}</button></div>`,
+        `<p class="modal-copy">${r.status === 'partial' ? 'Inspect Paper first. Closing ends retries and clears review conflicts. Any changes already applied in Paper remain.' : `Close “${esc(r.title)}” without replaying its recorded calls.`}</p><div class="modal-actions"><button class="button danger" id="confirm-reject">${r.status === 'partial' ? 'Close draft' : 'Discard draft'}</button></div>`,
       );
       $('#confirm-reject').onclick = run(async () => {
         await api('reject', { reviewId: r.id });
@@ -167,7 +284,7 @@ function modal(title, body) {
 function openModal() {
   modal(
     'Open a review',
-    '<p class="modal-copy">Start with a snapshot of the current canvas and its global tokens.</p><form id="open-form"><label class="form-field">Review title<input id="title" placeholder="What are you working on?" required maxlength="160" autofocus></label><div class="modal-actions"><button class="button primary">Open review ↗</button></div></form>',
+    '<p class="modal-copy">Start with a snapshot of the current canvas and its global tokens.</p><form id="open-form"><label class="form-field">Draft title<input id="title" placeholder="What are you working on?" required maxlength="160" autofocus></label><div class="modal-actions"><button class="button primary">Open draft ↗</button></div></form>',
   );
   $('#open-form').onsubmit = run(async (e) => {
     e.preventDefault();
@@ -179,10 +296,11 @@ function openModal() {
   $('#title').focus();
 }
 function stageModal() {
+  const reviewId = selected;
   const writes = state.schemas.tools.filter((t) => state.classes[t.name] === 'write');
   modal(
     'Stage a tool call',
-    `<p class="modal-copy">This call stays in the chamber. Arguments are validated against the ${state.mode === 'mock' ? 'mock-only fixture' : 'discovered live contract'}.</p><form id="stage-form"><label class="form-field">Discovered tool<select id="tool">${writes.map((t) => `<option>${esc(t.name)}</option>`).join('')}</select></label><label class="form-field">Arguments · JSON<textarea id="args" spellcheck="false">{}</textarea></label><details><summary class="modal-copy">Inspect runtime input schema</summary><pre class="value" id="input-schema"></pre></details><div class="modal-actions"><button class="button primary" ${writes.length ? '' : 'disabled'}>Stage call ↗</button></div></form>`,
+    `<p class="modal-copy">This call stays in the draft. Arguments are validated against the ${state.mode === 'mock' ? 'mock-only fixture' : 'discovered live contract'}.</p><form id="stage-form"><label class="form-field">Discovered tool<select id="tool">${writes.map((t) => `<option>${esc(t.name)}</option>`).join('')}</select></label><label class="form-field">Arguments · JSON<textarea id="args" spellcheck="false">{}</textarea></label><details><summary class="modal-copy">Inspect runtime input schema</summary><pre class="value" id="input-schema"></pre></details><div class="modal-actions"><button class="button primary" ${writes.length ? '' : 'disabled'}>Record draft call ↗</button></div></form>`,
   );
   const update = () => {
     const tool = writes.find((t) => t.name === $('#tool').value);
@@ -224,20 +342,29 @@ function stageModal() {
   update();
   $('#stage-form').onsubmit = run(async (e) => {
     e.preventDefault();
-    await api('stage', {
-      reviewId: selected,
+    let args;
+    try {
+      args = JSON.parse($('#args').value);
+    } catch {
+      throw new Error('Enter valid JSON for the tool arguments.');
+    }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      throw new Error('Tool arguments must be a JSON object.');
+    }
+    const staged = await api('stage', {
+      reviewId,
       tool: $('#tool').value,
-      arguments: JSON.parse($('#args').value),
+      arguments: args,
     });
-    approvals.delete(selected);
+    if (!staged.noOp) approvals.delete(reviewId);
     $('#modal').close();
     await refresh();
-    toast('Call staged. Your canvas is untouched.');
+    toast(staged.noOp ? 'This call made no changes to the proposal.' : 'Call staged for review.');
   });
 }
 function admitModal(r) {
   modal(
-    r.status === 'partial' ? 'Resume admission?' : 'Admit to canvas?',
+    r.status === 'partial' ? 'Resume Merge?' : 'Commit to canvas?',
     `<p class="modal-copy">${r.status === 'partial' ? 'Confirm you inspected Paper after the failure. Applied groups are skipped; the entire first failed group is retried and could duplicate effects.' : 'Tool-call groups replay in order. Admission stops on the first failure. A failed group may have partially applied; there is no automatic rollback.'}</p><p class="contract-warning">atomic: false · partial application can be unknown</p><div class="modal-actions"><button class="button primary" id="confirm-admit">${r.status === 'partial' ? 'I inspected Paper · Resume' : 'Admit approved changes'} ↗</button></div>`,
   );
   $('#confirm-admit').onclick = run(async () => {

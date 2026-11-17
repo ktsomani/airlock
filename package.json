@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "type": "module",
-  "description": "A human approval staging chamber for Paper MCP",
+  "description": "Visual Merge Engine for Agentic Canvases",
   "license": "MIT",
   "engines": {
     "node": ">=20"
@@ -50,6 +50,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.0",
     "@types/shell-quote": "^1.7.5",
+    "playwright": "^1.65.1",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

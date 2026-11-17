@@ -5,19 +5,19 @@ import { errorJSON, fail } from './core.js';
 import { serveWeb } from './web.js';
 import { serveMCP } from './mcp.js';
 import { demo } from './demo.js';
-const help = `Airlock — a staging chamber for Paper MCP
+const help = `Airlock — Visual Merge Engine for Agentic Canvases
 
-airlock start                         Local review UI (refreshes schemas on boot)
-airlock serve                         Agent MCP over stdio (refreshes on boot)
-airlock demo                          Stage an isolated mock demo review
+airlock start                         Local visual merge UI (refreshes schemas on boot)
+airlock serve [--human-resolver]                         Agent MCP over stdio (refreshes on boot)
+airlock demo                          Run the mock merge story and print its ledger
 airlock open <title> [--agent name]    Capture a base snapshot
-airlock list                          List reviews
+airlock list                          List drafts
 airlock tools                         Print discovered runtime contracts
-airlock stage <review> <tool> <json|@file>
+airlock draft <review> <tool> <json|@file>
 airlock diff <review>                 Structural diff and conflicts
-airlock approve <review>              Human approval → approvalToken + diffHash
-airlock admit <review> --token <token> [--resume]
-airlock reject <review>               Close an unadmitted review
+airlock resolve <review>              Human approval → approvalToken + diffHash
+airlock commit <review> --token <token> [--resume]
+airlock discard <review>               Discard an open draft
 airlock schema refresh|accept-drift   Refresh or accept changed contracts only
 airlock recover --confirm-stopped     Recover an interrupted run after inspection
 
@@ -54,7 +54,7 @@ async function main() {
         return;
       }
       case 'serve': {
-        const mcp = await serveMCP(e);
+        const mcp = await serveMCP(e, argv.includes('--human-resolver'));
         persistent = true;
         process.stdin.once('end', () => void mcp.close().then(() => rt.close()));
         process.once(
@@ -69,7 +69,7 @@ async function main() {
       }
       case 'demo':
         if (rt.cfg.mode !== 'mock') fail('mock_only');
-        result = await demo(e);
+        result = await demo(e, argv.includes('--preview'));
         break;
       case 'open':
         result = await e.open(required(1), flag('agent') ?? 'human');
@@ -80,6 +80,7 @@ async function main() {
       case 'tools':
         result = await rt.schemas.fresh();
         break;
+      case 'draft':
       case 'stage': {
         const raw = required(3);
         const args = JSON.parse(raw.startsWith('@') ? await readFile(raw.slice(1), 'utf8') : raw);
@@ -89,15 +90,18 @@ async function main() {
       case 'diff':
         result = e.diff(required(1));
         break;
+      case 'resolve':
       case 'approve':
         result = await e.approve(required(1), flag('diff-hash'));
         break;
+      case 'commit':
       case 'admit': {
         const token = flag('token') ?? process.env.AIRLOCK_APPROVAL_TOKEN;
         if (!token) fail('approval_required');
         result = await e.admit(required(1), token, argv.includes('--resume'));
         break;
       }
+      case 'discard':
       case 'reject':
         result = await e.reject(required(1));
         break;

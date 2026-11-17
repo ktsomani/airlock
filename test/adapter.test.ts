@@ -26,19 +26,35 @@ describe('Live Paper adapter', () => {
   describe('normalize', () => {
     const baseState = {
       canvas: {
-        'node-1': [
-          { tag: 'div', attrs: {}, text: '', children: [] },
-        ],
+        'node-1': [{ tag: 'div', attrs: {}, text: '', children: [] }],
       },
       tokens: {},
     };
 
     it('returns a core-compatible structural mutation for an empty page insertion', () => {
-      const args={fileId:'file-1',targetNodeId:'root-1',mode:'insert-children',html:'<h1>Hello</h1>'};
-      expect(adapter.normalize('write_html',args,{canvas:{'file-1:root-1':[]},tokens:{}})).toEqual([{kind:'html',targetNodeId:'file-1:root-1',html:args.html}]);
+      const args = {
+        fileId: 'file-1',
+        targetNodeId: 'root-1',
+        mode: 'insert-children',
+        html: '<h1>Hello</h1>',
+      };
+      expect(
+        adapter.normalize('write_html', args, { canvas: { 'file-1:root-1': [] }, tokens: {} }),
+      ).toEqual([{ kind: 'html', targetNodeId: 'file-1:root-1', html: args.html }]);
     });
-    it('rejects an insertion whose complete resulting subtree cannot be predicted',()=>{
-      expect(()=>adapter.normalize('write_html',{fileId:'file-1',targetNodeId:'root-1',mode:'insert-children',html:'<p>Next</p>'},{canvas:{'file-1:root-1':[{tag:'h1'}]},tokens:{}})).toThrow('UNSUPPORTED_MUTATION_PREDICTION');
+    it('rejects an insertion whose complete resulting subtree cannot be predicted', () => {
+      expect(() =>
+        adapter.normalize(
+          'write_html',
+          {
+            fileId: 'file-1',
+            targetNodeId: 'root-1',
+            mode: 'insert-children',
+            html: '<p>Next</p>',
+          },
+          { canvas: { 'file-1:root-1': [{ tag: 'h1' }] }, tokens: {} },
+        ),
+      ).toThrow('UNSUPPORTED_MUTATION_PREDICTION');
     });
 
     it('throws when a write_html payload contains <style>', () => {
@@ -52,49 +68,51 @@ describe('Live Paper adapter', () => {
     });
 
     it('throws UNSUPPORTED_MUTATION_PREDICTION for unpredicted tools', () => {
-      expect(() =>
-        adapter.normalize('create_artboard', {}, baseState),
-      ).toThrow('UNSUPPORTED_MUTATION_PREDICTION');
+      expect(() => adapter.normalize('create_artboard', {}, baseState)).toThrow(
+        'UNSUPPORTED_MUTATION_PREDICTION',
+      );
 
-      expect(() =>
-        adapter.normalize('delete_nodes', {}, baseState),
-      ).toThrow('UNSUPPORTED_MUTATION_PREDICTION');
+      expect(() => adapter.normalize('delete_nodes', {}, baseState)).toThrow(
+        'UNSUPPORTED_MUTATION_PREDICTION',
+      );
 
+      expect(() => adapter.normalize('set_text_content', {}, baseState)).toThrow(
+        'UNSUPPORTED_MUTATION_PREDICTION',
+      );
+    });
+
+    it('keeps unverified style updates outside the live adapter', () => {
       expect(() =>
-        adapter.normalize('set_text_content', {}, baseState),
+        adapter.normalize('update_styles', { fileId: 'file-1', updates: [] }, baseState),
       ).toThrow('UNSUPPORTED_MUTATION_PREDICTION');
     });
 
-    it('returns a token mutation when update_styles targets a CSS variable', () => {
-      const result = adapter.normalize(
-        'update_styles',
-        { targetId: 'root', styles: { '--accent': '#ff0000' } },
-        baseState,
-      );
-      expect(result).toHaveLength(1);
-      expect(result[0].type).toBe('token');
-      const tokenMutation = result[0] as {
-        type: string;
-        name: string;
-        value: string;
+    it('normalizes a single plain text edit against a confirmed Paper Text node', () => {
+      const state = {
+        canvas: {
+          'file-1:frame-1': [{ id: 'node-1', attributes: { 'data-airlock-paper-text': 'true' } }],
+        },
+        tokens: {},
       };
-      expect(tokenMutation.name).toBe('--accent');
-      expect(tokenMutation.value).toBe('#ff0000');
-    });
-
-    it('returns a node mutation when update_styles targets a regular property', () => {
-      const result = adapter.normalize(
-        'update_styles',
-        { targetId: 'node-1', styles: { color: 'red' } },
-        baseState,
-      );
-      expect(result).toHaveLength(1);
-      expect(result[0].type).toBe('node');
-      const nodeMutation = result[0] as {
-        type: string;
-        nodes: Array<{ attrs: { style: string } }>;
-      };
-      expect(nodeMutation.nodes[0].attrs.style).toContain('color: red');
+      const args = { fileId: 'file-1', updates: [{ nodeId: 'node-1', html: 'Air &amp; light' }] };
+      expect(adapter.normalize('set_text_content', args, state)).toEqual([
+        {
+          kind: 'node_text',
+          targetNodeId: 'file-1:frame-1',
+          nodeId: 'node-1',
+          text: 'Air & light',
+        },
+      ]);
+      expect(() =>
+        adapter.normalize('set_text_content', { ...args, fileId: 'other' }, state),
+      ).toThrow(/verified/);
+      expect(() =>
+        adapter.normalize(
+          'set_text_content',
+          { ...args, updates: [...args.updates, ...args.updates] },
+          state,
+        ),
+      ).toThrow(/one text layer/);
     });
   });
 
@@ -104,10 +122,26 @@ describe('Live Paper adapter', () => {
         callTool: async ({ name }: { name: string }) => {
           if (name === 'get_basic_info') {
             return {
-              content: [{ type: 'text', text: JSON.stringify({file:{id:'file-1'},pageId:'page-1',rootNodeId:'root-1',pages:[{id:'page-1',type:'page'}],tokens:{items:[]}}) }],
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    file: { id: 'file-1' },
+                    pageId: 'page-1',
+                    rootNodeId: 'root-1',
+                    pages: [{ id: 'page-1', type: 'page' }],
+                    tokens: { items: [] },
+                  }),
+                },
+              ],
             };
           }
-          if (name === 'get_children') return {content:[{type:'text',text:JSON.stringify({children:[{id:'node-1'}],count:1})}]};
+          if (name === 'get_children')
+            return {
+              content: [
+                { type: 'text', text: JSON.stringify({ children: [{ id: 'node-1' }], count: 1 }) },
+              ],
+            };
           if (name === 'get_jsx') {
             return { content: [{ type: 'text', text: '   ' }] };
           }
@@ -123,10 +157,26 @@ describe('Live Paper adapter', () => {
         callTool: async ({ name }: { name: string }) => {
           if (name === 'get_basic_info') {
             return {
-              content: [{ type: 'text', text: JSON.stringify({file:{id:'file-1'},pageId:'page-1',rootNodeId:'root-1',pages:[{id:'page-1',type:'page'}],tokens:{items:[]}}) }],
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    file: { id: 'file-1' },
+                    pageId: 'page-1',
+                    rootNodeId: 'root-1',
+                    pages: [{ id: 'page-1', type: 'page' }],
+                    tokens: { items: [] },
+                  }),
+                },
+              ],
             };
           }
-          if (name === 'get_children') return {content:[{type:'text',text:JSON.stringify({children:[{id:'node-1'}],count:1})}]};
+          if (name === 'get_children')
+            return {
+              content: [
+                { type: 'text', text: JSON.stringify({ children: [{ id: 'node-1' }], count: 1 }) },
+              ],
+            };
           if (name === 'get_jsx') {
             return { isError: true, content: [] };
           }

@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Pressure — Canvas review</title>
+  <title>Merge State — Canvas review</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<main id="pressure" tabindex="-1" aria-label="Pressure review surface">
+<main id="merge-state" tabindex="-1" aria-label="Merge State review surface">
   <header class="top">
-    <a class="brand" href="./" aria-label="Pressure home"><span class="mark" aria-hidden="true">▰</span> Pressure<span class="brand-dot">.</span></a>
+    <a class="brand" href="./" aria-label="Merge State home"><span class="mark" aria-hidden="true">▰</span> Merge State<span class="brand-dot">.</span></a>
     <span class="top-context">AIRLOCK / REVIEW SURFACE</span>
+    <a id="return-review" class="return-review" href="/" hidden>← Airlock review</a>
     <label class="import">Import review <input id="import" type="file" accept=".json,application/json"></label>
   </header>
   <div class="workspace">
@@ -29,7 +30,7 @@
       <div class="comparison">
         <div class="panes">
           <section class="pane"><header><span class="dot"></span> Before <small>BASE SNAPSHOT</small></header><div class="viewport" tabindex="0" aria-label="Before canvas, scrolls with proposed canvas"><div id="before"></div></div></section>
-          <section class="pane"><header><span class="dot green"></span> Proposed <small id="preview-label">PROPOSED SNAPSHOT</small></header><div class="viewport" tabindex="0" aria-label="Proposed canvas, scrolls with before canvas"><div id="proposed"></div></div></section>
+          <section class="pane"><header><span class="dot proposed-dot"></span> Proposed <small id="preview-label">PROPOSED SNAPSHOT</small></header><div class="viewport" tabindex="0" aria-label="Proposed canvas, scrolls with before canvas"><div id="proposed"></div></div></section>
         </div>
         <div class="scrub">
           <div class="scrub-heading"><label for="scrubber">Transition scrub</label><output id="percent" for="scrubber">100%</output></div>
@@ -51,7 +52,7 @@
         <li>Interpolation uses computed values and measured boxes. It cannot infer design intent.</li>
         <li>Uncomputable changes use a labeled crossfade.</li>
         <li>Scroll sync is visual. It does not synchronize transactions.</li>
-        <li>Pressure emits decisions. Airlock controls review approval and admission.</li>
+        <li>Merge State emits decisions. Airlock controls review approval and admission.</li>
       </ul></details>
     </footer>
   </div>

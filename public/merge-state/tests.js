@@ -25,7 +25,7 @@ function snapshot() {
   return document.querySelector('#proposed iframe').contentDocument.getElementById('snapshot');
 }
 function geometry() {
-  const { x, y, width, height } = snapshot().querySelector('[data-pressure-id="mast"]').getBoundingClientRect();
+  const { x, y, width, height } = snapshot().querySelector('[data-merge-state-id="mast"]').getBoundingClientRect();
   return [x, y, width, height];
 }
 try {
@@ -54,9 +54,9 @@ try {
       'Supported route should interpolate.');
   });
   test('Keyboard Space emits one approval even on repeated presses', () => {
-    const surface = document.getElementById('pressure');
+    const surface = document.getElementById('merge-state');
     const events = [];
-    surface.addEventListener('pressure:decision', event => events.push(event.detail.decision));
+    surface.addEventListener('merge-state:decision', event => events.push(event.detail.decision));
     const range = document.getElementById('scrubber');
     range.focus({ preventScroll: true });
     const press = (repeat = false) => range.dispatchEvent(new KeyboardEvent('keydown',

@@ -45,22 +45,22 @@ describe('MCP boundary', () => {
     cleanup.push(() => client.close());
     cleanup.push(() => server.close());
     const tools = await client.listTools();
-    expect(tools.tools.map((t) => t.name)).toContain('airlock_stage');
+    expect(tools.tools.map((t) => t.name)).toContain('merge_write_draft');
     expect(tools.tools.map((t) => t.name)).toContain('finish_working_on_nodes');
-    expect(tools.tools.map((t) => t.name)).not.toContain('airlock_approve');
+    expect(tools.tools.map((t) => t.name)).not.toContain('merge_resolve');
     expect(tools.tools.map((t) => t.name)).not.toContain('write_html');
-    const contracts = parse(await client.callTool({ name: 'airlock_tools', arguments: {} }));
+    const contracts = parse(await client.callTool({ name: 'merge_list_contracts', arguments: {} }));
     expect(contracts.source).toBe('catalog');
     expect(contracts.tools.find((t: any) => t.name === 'write_html').inputSchema).toBeDefined();
     const r = parse(
       await client.callTool({
-        name: 'airlock_open',
+        name: 'merge_open_draft',
         arguments: { title: 'Agent change', agent: 'Codex' },
       }),
     );
     const stage = parse(
       await client.callTool({
-        name: 'airlock_stage',
+        name: 'merge_write_draft',
         arguments: {
           reviewId: r.review.id,
           tool: 'write_html',
@@ -70,14 +70,14 @@ describe('MCP boundary', () => {
     );
     expect(stage.ops).toHaveLength(2);
     const blocked = await client.callTool({
-      name: 'airlock_approve',
+      name: 'merge_resolve',
       arguments: { reviewId: r.review.id },
     });
     expect(blocked.isError).toBe(true);
     const approval = await engine.approve(r.review.id, stage.diffHash);
     const report = parse(
       await client.callTool({
-        name: 'airlock_admit',
+        name: 'merge_commit',
         arguments: { reviewId: r.review.id, approvalToken: approval.approvalToken },
       }),
     );
@@ -101,9 +101,9 @@ describe('MCP boundary', () => {
       });
     cleanup.push(() => client.close());
     await client.connect(transport);
-    expect((await client.listTools()).tools.some((t) => t.name === 'airlock_tools')).toBe(true);
+    expect((await client.listTools()).tools.some((t) => t.name === 'merge_list_contracts')).toBe(true);
     const r = parse(
-      await client.callTool({ name: 'airlock_open', arguments: { title: 'Across processes' } }),
+      await client.callTool({ name: 'merge_open_draft', arguments: { title: 'Across processes' } }),
     );
     expect(r.review.status).toBe('pending');
   }, 20000);
@@ -131,7 +131,7 @@ describe('local human API', () => {
     const { url } = await web();
     const page = await fetch(url);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('Review chamber');
+    expect(await page.text()).toContain('Visual Merge Compiler');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     const noCSRF = await fetch(url + '/api/open', {
       method: 'POST',
@@ -152,6 +152,20 @@ describe('local human API', () => {
       req.on('error', reject);
     });
     expect(host.error.code).toBe('invalid_host');
+  });
+  it('serves the compiler and commits its chosen contrast resolution', async () => {
+    const { url, post } = await web();
+    expect((await fetch(url + '/compiler.js')).status).toBe(200);
+    const { draftIds, intent } = await post('merge/demo', {});
+    expect(intent.conflicts[0].kind).toBe('cross_keyspace_contrast');
+    const resolution = await post('merge/resolve', {
+      draftIds, selections: { '--color-text': '#ffffff' }, intentHash: intent.intentHash,
+    });
+    const ledger = await post('admit', {
+      reviewId: resolution.draftId, approvalToken: resolution.approvalToken,
+    });
+    expect(ledger).toMatchObject({ status: 'admitted', atomic: false });
+    expect(ledger.groups.every((group: { status: string }) => group.status === 'applied')).toBe(true);
   });
   it('completes open → stage → inspect → approve → admit and never returns stored token hashes', async () => {
     const { engine, url, post } = await web();

@@ -110,7 +110,7 @@ export class Schemas {
     if (c.changed.includes(name))
       fail(
         'SCHEMA_DRIFT',
-        `Contract changed for ${name}. Inspect and accept drift before staging.`,
+        `Contract changed for ${name}. Inspect and accept drift before recording draft writes.`,
       );
     const tool = c.tools.find((t) => t.name === name);
     if (!tool) fail('unknown_tool', name);

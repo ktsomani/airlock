@@ -21,13 +21,13 @@ const proposal = `
 .tag { border-radius: 18px; background-color: #c6ddbd; }
 `;
 const markup = `<article class="sheet">
-<div class="mast" data-pressure-id="mast">FIELD OFFICE</div>
+<div class="mast" data-merge-state-id="mast">FIELD OFFICE</div>
 <p class="kicker">ROUTE BRIEF / 04</p>
 <h1>North ridge transect</h1>
 <p class="description">A survey route through the eastern watershed.</p>
-<div class="field"><div class="contours"></div><div class="route" data-pressure-id="route"></div><div class="pin" data-pressure-id="pin">04</div></div>
+<div class="field"><div class="contours"></div><div class="route" data-merge-state-id="route"></div><div class="pin" data-merge-state-id="pin">04</div></div>
 <div class="legend"><span>34.2° N / 118.1° W</span><span>500 M</span></div>
-<div class="card"><span class="tag" data-pressure-id="tag">ACCESS WINDOW</span></div>
+<div class="card"><span class="tag" data-merge-state-id="tag">ACCESS WINDOW</span></div>
 <p class="extra">Survey conditions · Visibility good, light winds.</p>
 </article>`;
 const property = (name, before, after, previousRule, rule) => ({ name, before, after, previousRule, rule });

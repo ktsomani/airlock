@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Airlock — Visual Merge Compiler</title>
+    <link rel="stylesheet" href="/compiler.css" />
+    <script defer src="/compiler.js"></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="wordmark" href="/"><span class="brand-mark" aria-hidden="true"></span>Airlock</a>
+      <span class="subtitle">Visual Merge Compiler</span>
+      <div class="top-actions">
+        <span class="context" id="environment">Connecting…</span>
+        <a class="link" href="/drafts">Manage drafts <span aria-hidden="true">↗</span></a>
+      </div>
+    </header>
+    <main>
+      <div class="workspace">
+        <h1>Canvas merge</h1>
+        <button type="button" id="demo" hidden>Load demo drafts</button>
+      </div>
+      <fieldset id="drafts">
+        <legend>Drafts to merge</legend>
+        <div id="draft-list"></div>
+      </fieldset>
+      <div class="panels">
+        <section class="panel" aria-labelledby="base-title">
+          <header>
+            <h2 id="base-title">Stable base</h2>
+            <span class="badge live">Live</span>
+          </header>
+          <div id="base" class="panel-body"></div>
+        </section>
+        <section class="conflict-panel" aria-labelledby="conflicts-title">
+          <header>
+            <h2 id="conflicts-title">Resolution</h2>
+            <span class="badge" id="conflict-count" aria-live="polite"></span>
+          </header>
+          <div id="conflicts"></div>
+        </section>
+        <section class="panel projection-panel" aria-labelledby="projection-title">
+          <header>
+            <h2 id="projection-title">Projection</h2>
+            <span class="badge">Draft</span>
+          </header>
+          <div id="projected" class="panel-body"></div>
+        </section>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+      <section id="ledger" hidden>
+        <header class="ledger-header">
+          <div>
+            <h2>MergeLedger</h2>
+            <p id="ledger-summary"></p>
+          </div>
+          <code class="atomic">atomic: false</code>
+        </header>
+        <ol id="ledger-groups"></ol>
+      </section>
+    </main>
+    <footer>
+      <div class="footer-summary">
+        <strong id="merge-readiness"></strong>
+        <p>Tool calls replay in order. A merge is non-atomic.</p>
+      </div>
+      <button id="compile" class="primary" type="button" disabled>
+        <span id="compile-label">Compile &amp; Merge Drafts</span> <kbd id="merge-shortcut"></kbd>
+      </button>
+    </footer>
+  </body>
+</html>

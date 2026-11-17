@@ -56,6 +56,7 @@ export type CanonicalNode = {
 export type Snapshot = { canvas: Record<string, CanonicalNode[]>; tokens: Record<string, string> };
 export type Mutation =
   | { kind: 'html'; targetNodeId: string; html: string }
+  | { kind: 'node_text'; targetNodeId: string; nodeId: string; text: string }
   | { kind: 'token'; varName: string; value: string | null };
 export type Op = {
   opId: string;
@@ -97,6 +98,8 @@ export type Paper = {
   close(): Promise<void>;
 };
 export type Adapter = {
+  /** Tools whose replay touches only the individual text nodes recorded in their ops. */
+  independentTextTools?: readonly string[];
   classify(name: string): ToolClass | undefined;
   capture(paper: Paper): Promise<Snapshot>;
   normalize(

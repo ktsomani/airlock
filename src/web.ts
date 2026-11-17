@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { errorJSON, fail } from './core.js';
 import type { Engine } from './engine.js';
 import type { Config } from './config.js';
+import { demo } from './demo.js';
 import { classify } from './paper.js';
 export async function serveWeb(engine: Engine, cfg: Config) {
   const csrf = randomBytes(32).toString('hex');
@@ -26,14 +27,14 @@ export async function serveWeb(engine: Engine, cfg: Config) {
     try {
       const host = req.headers.host ?? '';
       if (![`127.0.0.1:${cfg.port}`, `localhost:${cfg.port}`].includes(host)) fail('invalid_host');
-      const path = new URL(req.url ?? '/', `http://${host}`).pathname;
+      const path = new URL(req.url ?? '/', `http://${host}`).pathname.replace(/^\/pressure\//, '/merge-state/');
       if (req.headers.origin && req.headers.origin !== `http://${host}`) fail('invalid_origin');
       if (req.headers['sec-fetch-site'] === 'cross-site') fail('invalid_origin');
       let result: unknown;
-      const pressureAsset = /^\/pressure\/(?:index\.html|style\.css|(?:app|fixture|bridge|tests)\.js)?$/.test(path);
-      if (req.method === 'GET' && (['/', '/app.js', '/style.css'].includes(path) || pressureAsset)) {
-        const file = path.endsWith('/') ? path.slice(1) + 'index.html' : path.slice(1);
-        if (pressureAsset && file.endsWith('.html')) {
+      const mergeStateAsset = /^\/merge-state\/(?:index\.html|style\.css|(?:app|fixture|bridge|tests)\.js)?$/.test(path);
+      if (req.method === 'GET' && (['/', '/drafts', '/app.js', '/style.css', '/compiler.js', '/compiler.css'].includes(path) || mergeStateAsset)) {
+        const file = path === '/' ? 'compiler.html' : path === '/drafts' ? 'index.html' : path.endsWith('/') ? path.slice(1) + 'index.html' : path.slice(1);
+        if (mergeStateAsset && file.endsWith('.html')) {
           res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self' about:; img-src data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'");
         }
         res.setHeader(
@@ -67,7 +68,15 @@ export async function serveWeb(engine: Engine, cfg: Config) {
         if (!req.headers['content-type']?.startsWith('application/json'))
           fail('invalid_content_type');
         const b = await body(req);
-        if (path === '/api/approve') {
+        if (path === '/api/merge/preview') result = engine.previewMerge(b.draftIds, b.selections);
+        else if (path === '/api/merge/demo') {
+          if (cfg.mode !== 'mock') fail('mock_only');
+          result = await demo(engine, true);
+        } else if (path === '/api/merge/resolve') {
+          const draft = await engine.compile(b.draftIds, b.selections, b.intentHash);
+          const resolution = await engine.approve(draft.review.id, draft.diffHash);
+          result = { draftId: draft.review.id, ...resolution };
+        } else if (path === '/api/approve') {
           if (typeof b.diffHash !== 'string' || !b.diffHash) fail('diff_hash_required');
           result = await engine.approve(b.reviewId, b.diffHash);
         } else if (path === '/api/admit')

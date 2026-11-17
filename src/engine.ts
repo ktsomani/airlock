@@ -12,7 +12,8 @@ import {
 } from './core.js';
 import type { DB } from './db.js';
 import { Schemas, toolHash } from './schema.js';
-import { classify } from './paper.js';
+import { mergeIntent } from './merge.js';
+import { classify, mockAdapter } from './paper.js';
 import { normalize, tokenRefs } from './html.js';
 type Review = {
   id: string;
@@ -36,6 +37,7 @@ type Group = {
   status: string;
   error_json: string | null;
 };
+export type MergeLedger = ReturnType<Engine['ledger']>;
 export class Engine {
   constructor(
     public db: DB,
@@ -77,7 +79,7 @@ export class Engine {
           'SELECT r.*,s.base_hash FROM reviews r JOIN snapshots s ON s.id=r.snapshot_id ORDER BY created_at DESC',
         )
         .all() as Review[]
-    ).map(({ approval_token_hash, approved_diff_hash, projection_json, ...r }) => r);
+    ).map(({ approval_token_hash, approved_diff_hash, projection_json, ...r }) => ({ ...r, compiled: Boolean(this.mergeSources(r.id)) }));
   }
   groups(reviewId: string) {
     return this.db
@@ -136,7 +138,7 @@ export class Engine {
     if (!reviewId)
       fail(
         'review_required',
-        'Open a review and stage through airlock_stage. Direct writes cannot reach Paper.',
+        'Open a draft and write through merge_write_draft. Direct writes cannot reach Paper.',
       );
     return this.stage(reviewId, name, args);
   }
@@ -146,6 +148,7 @@ export class Engine {
       if (classify(name, this.adapter) !== 'write')
         fail('not_a_write', 'Read and passthrough calls are forwarded directly, never staged.');
       const r = this.review(reviewId);
+      if (this.mergeSources(reviewId)) fail('compiled_draft_readonly');
       if (!['pending', 'approved'].includes(r.status)) fail('review_not_editable');
       const groupId = id();
       const { state, ops } = normalize(
@@ -190,6 +193,74 @@ export class Engine {
       return this.diff(reviewId);
     });
   }
+  private mergeSources(id: string): { draftIds: string[]; intentHash: string; conflicts: ReturnType<typeof mergeIntent>['conflicts'] } | undefined {
+    const row = this.db.prepare('SELECT json FROM kv WHERE key=?').get('merge:' + id) as { json: string } | undefined;
+    return row ? JSON.parse(row.json) : undefined;
+  }
+
+  previewMerge(draftIds: string[], selections: Record<string, string> = {}) {
+    if (!Array.isArray(draftIds) || draftIds.length === 0 || draftIds.some(id => typeof id !== 'string' || this.mergeSources(id)))
+      fail('invalid_draft_selection');
+    return mergeIntent(draftIds.map(id => this.diff(id)), selections, this.adapter === mockAdapter, this.adapter.independentTextTools);
+  }
+
+  async compile(draftIds: string[], selections: Record<string, string>, expectedIntent: string) {
+    return this.locked(async () => {
+      const intent = this.previewMerge(draftIds, selections);
+      if (intent.intentHash !== expectedIntent) fail('stale_diff');
+      if (intent.unresolved.length) fail('unresolved_merge');
+      if (draftIds.some(draftId => this.conflicts(draftId).some(conflict => !draftIds.includes(conflict.reviewId))))
+        fail('review_conflict', 'A draft outside this selection overlaps the merge. Inspect it before compiling.');
+      const reviewId = id();
+      const base = this.review(draftIds[0]!);
+      const replayTokens = { ...intent.base.tokens };
+      const groups: { id: string; tool: string; args: Record<string, unknown>; contract: string; ops: Op[] }[] = [];
+      for (const source of draftIds) {
+        const ops = this.ops(source);
+        for (const group of this.groups(source)) {
+          const args = JSON.parse(group.args_json) as Record<string, unknown>;
+          const groupOps = ops.filter(op => op.groupId === group.id);
+          const groupId = id();
+          if (group.tool !== 'set_tokens' && groupOps.some(op => op.varName && Object.hasOwn(selections, op.varName)))
+            fail('unsupported_token_resolution', 'A selected token also comes from an inline write. Resolve that value in its source draft.');
+          if (this.adapter === mockAdapter && group.tool === 'set_tokens') {
+            const values = args.tokens as Record<string, string | null>;
+            args.tokens = Object.fromEntries(groupOps.flatMap(op => op.varName
+              ? [[op.varName, Object.hasOwn(selections, op.varName) ? selections[op.varName] : values[op.varName]]]
+              : []));
+            await this.schemas.validate(group.tool, args);
+          }
+          const compiledOps = groupOps.map(op => {
+            if (!op.varName) return { ...op, groupId, opId: id() };
+            const key = op.varName;
+            const before = replayTokens[key] ?? null;
+            const after = Object.hasOwn(selections, key) ? selections[key]! : op.after;
+            if (typeof after === 'string') replayTokens[key] = after;
+            else delete replayTokens[key];
+            return { ...op, groupId, opId: id(), before, after };
+          });
+          groups.push({ id: groupId, tool: group.tool, args, contract: group.contract_hash, ops: compiledOps });
+        }
+      }
+      if (!groups.length) fail('empty_review');
+      this.db.transaction(() => {
+        this.db.prepare('INSERT INTO reviews(id,title,agent,snapshot_id,projection_json,created_at) VALUES(?,?,?,?,?,?)')
+          .run(reviewId, 'Compiled drafts', 'human', base.snapshot_id, canonical(intent.projected), new Date().toISOString());
+        this.db.prepare('INSERT INTO kv VALUES(?,?)').run('merge:' + reviewId, canonical({
+          draftIds, intentHash: intent.intentHash, conflicts: intent.conflicts,
+        }));
+        for (const [ordinal, group] of groups.entries()) {
+          this.db.prepare('INSERT INTO groups(id,review_id,ordinal,tool,args_json,contract_hash) VALUES(?,?,?,?,?,?)')
+            .run(group.id, reviewId, ordinal, group.tool, canonical(group.args), group.contract);
+          for (const op of group.ops)
+            this.db.prepare(`INSERT INTO ${op.space === 'node' ? 'node_ops' : 'token_ops'} VALUES(?,?,?,?,?)`)
+              .run(op.opId, group.id, reviewId, op.varName ?? op.key, canonical(op));
+        }
+      })();
+      return this.diff(reviewId);
+    });
+  }
+
   conflicts(reviewId: string) {
     const r = this.review(reviewId),
       own = this.ops(reviewId);
@@ -205,7 +276,8 @@ export class Engine {
         "SELECT r.id FROM reviews r JOIN snapshots s ON r.snapshot_id=s.id WHERE s.base_hash=? AND r.id<>? AND r.status IN ('pending','approved','partial','admitting')",
       )
       .all(r.base_hash, reviewId) as { id: string }[];
-    for (const other of others)
+    const sources = this.mergeSources(reviewId)?.draftIds ?? [];
+    for (const other of others.filter(other => !sources.includes(other.id)))
       for (const a of own)
         for (const b of this.ops(other.id)) {
           if (a.space === b.space && a.key === b.key)
@@ -306,11 +378,12 @@ export class Engine {
         .run(canonical(op), op.opId);
     }
   }
-  report(reviewId: string) {
+  ledger(reviewId: string) {
     const groups = this.groups(reviewId);
     return {
       reviewId,
       status: this.review(reviewId).status,
+      conflicts: this.mergeSources(reviewId)?.conflicts ?? [],
       atomic: false as const,
       partialWithinGroup: groups.some((g) => g.status === 'failed') ? ('unknown' as const) : null,
       groups: groups.map((g) => ({
@@ -321,6 +394,10 @@ export class Engine {
       })),
       ops: this.ops(reviewId),
     };
+  }
+  /** Compatibility alias for callers of the original report API. */
+  report(reviewId: string): MergeLedger {
+    return this.ledger(reviewId);
   }
   async admit(reviewId: string, approvalToken: string, resume = false) {
     return this.locked(async () => {
@@ -339,7 +416,10 @@ export class Engine {
         !timingSafeEqual(Buffer.from(digest), Buffer.from(r.approval_token_hash))
       )
         fail('invalid_approval');
-      if (r.status === 'admitted') return this.report(reviewId);
+      if (r.status === 'admitted') return this.ledger(reviewId);
+      const compilation = this.mergeSources(reviewId);
+      if (compilation && r.status !== 'partial' && this.previewMerge(compilation.draftIds).intentHash !== compilation.intentHash)
+        fail('stale_diff');
       if (this.conflicts(reviewId).length) fail('review_conflict');
       await this.schemas.refresh(false);
       const remaining = this.groups(reviewId).filter((g) => g.status !== 'applied');
@@ -392,11 +472,15 @@ export class Engine {
             for (const later of remaining.slice(i + 1)) this.markGroup(later, 'skipped');
             this.db.prepare("UPDATE reviews SET status='partial' WHERE id=?").run(reviewId);
           })();
-          return this.report(reviewId);
+          return this.ledger(reviewId);
         }
       }
-      this.db.prepare("UPDATE reviews SET status='admitted' WHERE id=?").run(reviewId);
-      return this.report(reviewId);
+      this.db.transaction(() => {
+        this.db.prepare("UPDATE reviews SET status='admitted' WHERE id=?").run(reviewId);
+        for (const source of compilation?.draftIds ?? [])
+          this.db.prepare("UPDATE reviews SET status='merged',approval_token_hash=NULL,approved_diff_hash=NULL WHERE id=? AND status IN ('pending','approved')").run(source);
+      })();
+      return this.ledger(reviewId);
     });
   }
   // Explicit operator recovery only, after stopping all Airlock processes.

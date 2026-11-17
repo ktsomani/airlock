@@ -13,25 +13,25 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 const str = { type: 'string', minLength: 1 };
 const controls: Tool[] = [
   {
-    name: 'airlock_open',
-    description: 'Open a review against the current canvas and global tokens.',
+    name: 'merge_open_draft',
+    description: 'Open a draft against the current canvas and global tokens.',
     inputSchema: object({ title: str, agent: str }, ['title']),
   },
-  { name: 'airlock_list', description: 'List reviews.', inputSchema: object({}) },
+  { name: 'merge_list_drafts', description: 'List drafts.', inputSchema: object({}) },
   {
-    name: 'airlock_tools',
+    name: 'merge_list_contracts',
     description:
-      'Discover original upstream contracts, provenance, drift and removed tools. Use these runtime schemas to construct staged arguments.',
+      'Discover original upstream contracts, provenance, drift and removed tools. Use these runtime schemas to construct draft arguments.',
     inputSchema: object({}),
   },
   {
-    name: 'airlock_diff',
+    name: 'merge_diff_intent',
     description: 'Inspect normalized node/token operations and conflicts.',
     inputSchema: object({ reviewId: str }, ['reviewId']),
   },
   {
-    name: 'airlock_stage',
-    description: 'Stage a discovered write tool in a review. Never writes to Paper.',
+    name: 'merge_write_draft',
+    description: 'Record a discovered write tool in a draft without mutating Paper.',
     inputSchema: object({ reviewId: str, tool: str, arguments: { type: 'object' } }, [
       'reviewId',
       'tool',
@@ -39,17 +39,20 @@ const controls: Tool[] = [
     ]),
   },
   {
-    name: 'airlock_admit',
+    name: 'merge_commit',
     description:
-      'Replay a human-approved review with its approval token. Non-atomic; failed groups may have partially applied. Resume retries the whole failed group.',
+      'Commit a human-resolved draft using its resolution token. Non-atomic; failed groups may have partially applied. Resume retries the whole failed group.',
     inputSchema: object({ reviewId: str, approvalToken: str, resume: { type: 'boolean' } }, [
       'reviewId',
       'approvalToken',
     ]),
   },
 ];
-// Human approval is deliberately not available to an agent on this transport.
-export function mcpServer(engine: Engine) {
+const humanControls: Tool[] = [
+  { name: 'merge_resolve', description: 'Resolve a draft at the inspected diff hash.', inputSchema: object({ reviewId: str, diffHash: str }, ['reviewId', 'diffHash']) },
+  { name: 'merge_discard', description: 'Discard a draft.', inputSchema: object({ reviewId: str }, ['reviewId']) },
+];
+export function mcpServer(engine: Engine, humanResolver = false) {
   const server = new Server(
     { name: 'airlock', version: '0.1.0' },
     { capabilities: { tools: { listChanged: true } } },
@@ -57,9 +60,9 @@ export function mcpServer(engine: Engine) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const cache = await engine.schemas.fresh();
     const forwarded = cache.tools.filter(
-      (t) => classify(t.name, engine.adapter) !== 'write' && !t.name.startsWith('airlock_'),
+      (t) => classify(t.name, engine.adapter) !== 'write' && !/^(airlock_|merge_)/.test(t.name),
     );
-    return { tools: [...controls, ...forwarded] as any };
+    return { tools: [...controls, ...(humanResolver ? humanControls : []), ...forwarded] as any };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
@@ -71,36 +74,50 @@ export function mcpServer(engine: Engine) {
       };
       let result: unknown;
       switch (name) {
+        case 'merge_open_draft':
         case 'airlock_open':
           result = await engine.open(
             text('title'),
             typeof a.agent === 'string' ? a.agent : 'agent',
           );
           break;
+        case 'merge_list_drafts':
         case 'airlock_list':
           result = engine.list();
           break;
+        case 'merge_list_contracts':
         case 'airlock_tools':
           result = await engine.schemas.fresh();
           break;
+        case 'merge_diff_intent':
         case 'airlock_diff':
           result = engine.diff(text('reviewId'));
           break;
+        case 'merge_write_draft':
         case 'airlock_stage':
           if (!a.arguments || typeof a.arguments !== 'object' || Array.isArray(a.arguments))
-            fail('invalid_arguments', 'airlock_stage requires {reviewId, tool, arguments}. Put the upstream tool payload in arguments, not args.');
+            fail('invalid_arguments', 'merge_write_draft requires {reviewId, tool, arguments}.');
           result = await engine.stage(
             text('reviewId'),
             text('tool'),
             a.arguments as Record<string, unknown>,
           );
           break;
+        case 'merge_commit':
         case 'airlock_admit':
           if (a.resume !== undefined && typeof a.resume !== 'boolean') fail('invalid_arguments');
           result = await engine.admit(text('reviewId'), text('approvalToken'), a.resume === true);
           break;
+        case 'merge_resolve':
+          if (!humanResolver) fail('human_resolution_required');
+          result = await engine.approve(text('reviewId'), text('diffHash'));
+          break;
+        case 'merge_discard':
+          if (!humanResolver) fail('human_resolution_required');
+          result = await engine.reject(text('reviewId'));
+          break;
         default:
-          if (name.startsWith('airlock_')) fail('unknown_tool');
+          if (/^(airlock_|merge_)/.test(name)) fail('unknown_tool');
           return await engine.call(name, a);
       }
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -110,8 +127,8 @@ export function mcpServer(engine: Engine) {
   });
   return server;
 }
-export async function serveMCP(engine: Engine) {
-  const server = mcpServer(engine);
+export async function serveMCP(engine: Engine, humanResolver = false) {
+  const server = mcpServer(engine, humanResolver);
   await server.connect(new StdioServerTransport());
   return server;
 }

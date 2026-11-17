@@ -187,6 +187,20 @@ export function normalize(mutations: Mutation[], base: Snapshot, groupId: string
       token(m.varName, m.value);
       continue;
     }
+    if (m.kind === 'node_text') {
+      const nodes = state.canvas[m.targetNodeId];
+      const index = nodes?.findIndex(node => node.id === m.nodeId) ?? -1;
+      const before = nodes?.[index];
+      if (!before || typeof m.text !== 'string') fail('invalid_mutation');
+      if (before.text === m.text) continue;
+      const after = { ...before, text: m.text };
+      nodes![index] = after;
+      ops.push({
+        opId: id(), groupId, space: 'node', key: m.targetNodeId + '::' + nodeKey(before),
+        targetNodeId: m.targetNodeId, before, after, status: 'pending',
+      });
+      continue;
+    }
     if (m.kind !== 'html' || typeof m.html !== 'string' || !m.targetNodeId)
       fail('invalid_mutation');
     const { nodes, tokens } = flatten(m.html);

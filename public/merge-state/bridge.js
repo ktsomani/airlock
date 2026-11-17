@@ -18,7 +18,7 @@ function project(canvas, tokens, identities) {
       const parent = paths.get(node.path.slice(0, node.path.lastIndexOf('/'))) ?? group;
       if (node.tag === '#text') {
         const text = document.createElement('span');
-        text.dataset.pressureId = identities.get(scope + '::path:' + node.path) ?? '';
+        text.dataset.mergeStateId = identities.get(scope + '::path:' + node.path) ?? '';
         text.textContent = node.text;
         parent.append(text);
         continue;
@@ -34,7 +34,7 @@ function project(canvas, tokens, identities) {
       if (node.classes?.length) el.className = node.classes.join(' ');
       for (const [name, value] of Object.entries(node.style ?? {})) el.style.setProperty(name, value);
       const key = scope + '::' + (node.id ? 'id:' + node.id : node.testid ? 'testid:' + node.testid : 'path:' + node.path);
-      el.dataset.pressureId = identities.get(key) ?? key;
+      el.dataset.mergeStateId = identities.get(key) ?? key;
       if (!parents.has(node.path)) el.textContent = node.text;
       parent.append(el);
       paths.set(node.path, el);

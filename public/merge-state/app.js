@@ -2,7 +2,7 @@ import { sample } from './fixture.js';
 import { fromAirlock } from './bridge.js';
 
 const $ = id => document.getElementById(id);
-const surface = $('pressure');
+const surface = $('merge-state');
 const colors = ['color', 'background-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'];
 const boxes = ['box', 'width', 'height', 'left', 'right', 'top', 'bottom', 'x', 'y'];
 const computable = new Set([...colors, ...boxes, 'opacity', 'transform']);
@@ -119,8 +119,8 @@ function positions(element) {
   if (!element) return null;
   // Called only while preparing the review. Measure the box before transforms.
   const sheet = element.ownerDocument.createElement('style');
-  sheet.textContent = '#snapshot [data-pressure-id="' +
-    CSS.escape(element.dataset.pressureId) +
+  sheet.textContent = '#snapshot [data-merge-state-id="' +
+    CSS.escape(element.dataset.mergeStateId) +
     '"]{transform:none!important;translate:none!important;scale:none!important;rotate:none!important}';
   element.ownerDocument.head.append(sheet);
   const rect = element.getBoundingClientRect();
@@ -158,7 +158,7 @@ function duplicateForFade(source, rect, style) {
     const computed = source.ownerDocument.defaultView.getComputedStyle(originals[i]);
     for (const property of computed) duplicates[i].style.setProperty(property, computed.getPropertyValue(property));
     duplicates[i].removeAttribute('id');
-    duplicates[i].removeAttribute('data-pressure-id');
+    duplicates[i].removeAttribute('data-merge-state-id');
   }
   Object.assign(clone.style, {
     position: 'absolute', margin: '0', inset: 'auto', left: rect.left + 'px', top: rect.top + 'px',
@@ -168,7 +168,7 @@ function duplicateForFade(source, rect, style) {
   return paused(clone, [{ opacity: style.opacity, visibility: 'visible' }, { opacity: 0, visibility: 'hidden' }]);
 }
 function snapshotMap(doc) {
-  return new Map([...doc.querySelectorAll('#snapshot [data-pressure-id]')].map(node => [node.dataset.pressureId, node]));
+  return new Map([...doc.querySelectorAll('#snapshot [data-merge-state-id]')].map(node => [node.dataset.mergeStateId, node]));
 }
 function compileTracks() {
   if (!frames) return;
@@ -250,9 +250,9 @@ function safeSnapshot(snapshot) {
   const css = String(snapshot.css ?? '').replace(/</g, '\\3c ');
   return '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" ' +
     'content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'">' +
-    '<style>html,body{margin:0;overflow:hidden}#pressure-overlay{position:absolute;inset:0;z-index:2147483647;pointer-events:none}</style>' +
+    '<style>html,body{margin:0;overflow:hidden}#merge-state-overlay{position:absolute;inset:0;z-index:2147483647;pointer-events:none}</style>' +
     '<style>' + css + '</style><main id="snapshot">' + template.innerHTML +
-    '</main><div id="pressure-overlay" aria-hidden="true"></div>';
+    '</main><div id="merge-state-overlay" aria-hidden="true"></div>';
 }
 function mount(layer, snapshot, label) {
   return new Promise(resolve => {
@@ -305,7 +305,7 @@ export async function loadReview(input) {
   ]);
   if (version !== generation) return;
   frames = pair;
-  overlay = frames[1].contentDocument.getElementById('pressure-overlay');
+  overlay = frames[1].contentDocument.getElementById('merge-state-overlay');
   compileTracks();
   observer = new ResizeObserver(compileTracks);
   for (const viewport of document.querySelectorAll('.viewport')) observer.observe(viewport);
@@ -375,7 +375,7 @@ function decide(value) {
   decision = value;
   decisionButtons(false);
   $('status').textContent = value === 'abort' ? 'Review aborted' : (value === 'approve' ? 'Approval' : 'Rejection') + ' decision emitted';
-  surface.dispatchEvent(new CustomEvent('pressure:decision', {
+  surface.dispatchEvent(new CustomEvent('merge-state:decision', {
     bubbles: true, detail: { decision: value, reviewId: review.id, mutationId: review.mutationId, diffHash: review.diffHash },
   }));
 }
@@ -437,11 +437,13 @@ $('import').addEventListener('change', async event => {
   } catch (error) { showError(error); }
   finally { event.target.value = ''; }
 });
-surface.addEventListener('pressure:load', event => loadReview(event.detail).catch(showError));
+surface.addEventListener('merge-state:load', event => loadReview(event.detail).catch(showError));
 export const ready = (async () => {
   const id = new URLSearchParams(location.search).get('review');
   try {
     if (id) {
+      $('return-review').href = '/?review=' + encodeURIComponent(id);
+      $('return-review').hidden = false;
       const response = await fetch('/api/reviews/' + encodeURIComponent(id));
       const result = await response.json();
       if (!response.ok || result.error) throw new Error(result.error?.message ?? 'Unable to load Airlock review.');
