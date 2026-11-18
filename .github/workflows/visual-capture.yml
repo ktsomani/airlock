@@ -1,0 +1,56 @@
+name: Airlock visual capture
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'public/compiler.*'
+      - 'visual-ci/**'
+      - '.github/workflows/visual-*.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: airlock-visual-capture-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
+          path: candidate
+          persist-credentials: false
+      - name: Verify candidate revision
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build trusted capture image
+        run: docker build -t airlock-visual-ci base/visual-ci
+      - name: Render base and candidate
+        run: |
+          python -m pip install -r base/visual-ci/requirements.txt
+          python base/visual-ci/compare.py --base base/public --head candidate/public --out visual-result
+      - uses: actions/upload-artifact@v4
+        with:
+          name: airlock-visual-screenshots
+          path: visual-result/*.png
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: airlock-visual-summary
+          path: visual-result/summary.json
+          if-no-files-found: error
+          retention-days: 14

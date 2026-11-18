@@ -47,6 +47,49 @@ pnpm exec tsx demo/record-video.ts
 
 The recorder prints the absolute path to the 1280×800 WebM in `demo/recordings/`. Set `AIRLOCK_VIDEO_URL` if your Airlock UI uses a different port.
 
+## Visual reviews on GitHub pull requests
+
+Airlock compares the **merge toolbar** on the PR base and head at **390 px (mobile), 768 px (tablet), and 1440 px (desktop)**. The PR comment lists changed viewports, calls out newly clipped or removed merge buttons and label changes, and links to an archive with the before, after, and red diff images.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    Agent["Agent or engineer"] -->|Opens or updates PR| Capture["GitHub Actions: capture"]
+    Capture -->|Base and head assets, read-only| Docker["Docker: one container per revision"]
+    Docker --> Browser["Playwright: headless Chromium"]
+    Browser --> Diff["Pixel diff + toolbar checks"]
+    Diff --> Images["GitHub Actions: screenshot artifact"]
+    Diff --> Summary["GitHub Actions: JSON summary"]
+    Summary --> Publisher["Trusted publisher workflow"]
+    Publisher -->|Create or update| API["GitHub REST API"]
+    API --> Comment["One comment on the PR"]
+    Comment --> Images
+```
+
+- **Capture.** The unprivileged PR workflow builds the capture image from the base revision. A minimal Node server serves the compiler’s HTML, CSS, and JavaScript against fixed mock data. Each revision runs as a non-root user in a network-disabled container with a read-only source mount and a **120-second deadline**. A timeout forcibly removes the named container.
+- **Compare.** Playwright captures the footer at three fixed sizes. The pixel differ paints changed pixels red and reports size changes. Separate DOM checks identify button removal, label changes, and new clipping. The base is the PR’s target commit; the head is the PR’s proposed commit.
+- **Publish.** A separate workflow on the default branch reads the small, validated JSON summary and posts through the GitHub REST API. It checks that the PR is still open and the head still matches. The capture job has read-only repository permissions. The publisher has PR comment permission and does not run code from the PR. Screenshot artifacts are retained for 14 days.
+
+### Try it on a PR
+
+Merge the two visual workflows to the default branch. Open a PR that touches `public/compiler.css` and introduce a mobile-only regression, for example by constraining `#compile` to 90 px with hidden overflow below 480 px and preventing the label from wrapping. The comment should identify mobile and link to the artifact. Push a fix and check that the same comment updates.
+
+The first version covers the single toolbar in its mock state. It does not run the Paper backend, arbitrary project build steps, or remote assets. Visual differences are reported for review and do not fail the workflow. Capture or artifact failures still fail the workflow and are visible under Actions.
+
+### Run locally
+
+Requires Docker with a Linux engine, Python 3.11+, and two Airlock checkouts.
+
+```sh
+docker build -t airlock-visual-ci visual-ci
+python -m pip install -r visual-ci/requirements.txt
+python visual-ci/compare.py --base ../base/public --head public --out visual-result
+python -m unittest discover -s visual-ci -v
+```
+
+Open `visual-result/mobile-diff.png` for a sample output or `visual-result/summary.json` for the machine-readable report.
+
 ## Agent connection
 
 Configure your MCP host to launch Airlock instead of giving that agent direct write access to Paper:
