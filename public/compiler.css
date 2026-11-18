@@ -545,8 +545,4 @@ kbd {
   }
 }
 
-/* Deliberate mobile-only regression for the Airlock visual CI demo. */
-@media (max-width: 480px) {
-  #compile { flex: 0 0 90px; width: 90px; overflow: hidden; }
-  #compile-label { white-space: nowrap; }
-}
+/* Visual review demo: the merge button uses its original responsive sizing. */
